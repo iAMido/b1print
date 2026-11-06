@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>B1 Print</title>
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="B1 Print">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<style>
+  :root { --bg:#f4f3ef; --card:#fff; --ink:#111; --muted:#6b6b6b; --line:#dedbd3; --accent:#111; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --card:#202020; --ink:#f2f2f2; --muted:#9a9a9a; --line:#333; --accent:#f2f2f2; } }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+         padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  header { padding:18px 16px 6px; }
+  h1 { margin:0; font-size:26px; letter-spacing:-.5px; }
+  header p { margin:2px 0 0; color:var(--muted); font-size:14px; }
+  main { padding:8px 16px 40px; max-width:1100px; margin:0 auto; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .btn { appearance:none; border:1.5px solid var(--accent); background:var(--accent); color:var(--bg); font:inherit; font-weight:600;
+         border-radius:12px; padding:12px 16px; cursor:pointer; flex:1; text-align:center; min-width:130px; }
+  .btn.ghost { background:transparent; color:var(--ink); }
+  .btn.small { padding:8px 10px; font-size:14px; min-width:0; border-radius:10px; }
+  .btn:disabled { opacity:.4; }
+  details { background:var(--card); border:1px solid var(--line); border-radius:14px; margin:14px 0; }
+  summary { padding:14px 16px; font-weight:600; cursor:pointer; list-style:none; }
+  summary::after { content:"⌄"; float:left; color:var(--muted); }
+  details[open] summary::after { content:"⌃"; }
+  .settings { padding:0 16px 16px; display:grid; gap:14px; }
+  label.f { display:grid; gap:6px; font-size:14px; color:var(--muted); }
+  label.f b { color:var(--ink); font-weight:600; }
+  select, input[type=text] { font:inherit; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--ink); }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .toggles { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { display:flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:999px; padding:7px 12px; font-size:14px; }
+  .hint { font-size:13px; color:var(--muted); background:var(--card); border:1px dashed var(--line); border-radius:12px; padding:10px 12px; margin-top:12px; }
+  #preview { display:none; margin-top:14px; align-items:center; gap:10px; font-size:13px; color:var(--muted); }
+  #preview img { height:56px; border-radius:8px; border:1px solid var(--line); background:repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0/12px 12px; }
+  #status { min-height:20px; font-size:14px; color:var(--muted); margin:8px 2px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; display:grid; gap:8px; }
+  .card h3 { margin:0; font-size:17px; }
+  .card p { margin:0; font-size:13px; color:var(--muted); }
+  .card canvas { width:100%; height:auto; image-rendering:pixelated; background:#fff; border-radius:6px; border:1px solid var(--line); }
+  .card .row .btn { flex:1; }
+  .pending canvas { opacity:.25; }
+</style>
+</head>
+<body>
+<header>
+  <h1>B1 Print</h1>
+  <p>מתמונה למדבקה בשחור לבן, ל-NIIMBOT B1</p>
+</header>
+<main>
+  <div class="row">
+    <label class="btn" for="file">בחירת תמונה</label>
+    <input id="file" type="file" accept="image/*" hidden>
+    <button class="btn ghost" id="paste">הדבקה מהלוח</button>
+  </div>
+  <div class="hint">טיפ להסרת רקע: באפליקציית התמונות לוחצים לחיצה ארוכה על הנושא, בוחרים "העתק", וחוזרים לכאן ל"הדבקה מהלוח".</div>
+  <div id="preview"><img alt=""><span></span></div>
+
+  <details id="opts">
+    <summary>הגדרות</summary>
+    <div class="settings">
+      <label class="f"><b>גודל מדבקה (מ"מ)</b>
+        <select id="label"></select>
+      </label>
+      <div class="toggles">
+        <label class="chip"><input type="checkbox" id="rotate"> לאורך (סיבוב 90°)</label>
+        <label class="chip"><input type="checkbox" id="cover"> למלא את כל המדבקה</label>
+        <label class="chip"><input type="checkbox" id="invert"> הפוך (לבן על שחור)</label>
+      </div>
+      <label class="f"><b>שוליים: <span data-out="margin"></span> מ"מ</b><input type="range" id="margin" min="0" max="5" step="0.5" value="1.5"></label>
+      <label class="f"><b>ניגודיות: <span data-out="contrast"></span></b><input type="range" id="contrast" min="0" max="2" step="0.1" value="1"></label>
+      <label class="f"><b>בהירות דיתור: <span data-out="gamma"></span></b><input type="range" id="gamma" min="0.8" max="2.4" step="0.05" value="1.2">
+        <span>ההדפסה יוצאת כהה מהמסך. אם כהה מדי, להזיז ימינה.</span></label>
+      <label class="f"><b>כמות קווים: <span data-out="detail"></span></b><input type="range" id="detail" min="0.006" max="0.04" step="0.001" value="0.015">
+        <span>שמאלה = יותר קווים.</span></label>
+      <label class="f"><b>עובי קו: <span data-out="linePx"></span></b><input type="range" id="linePx" min="0" max="3" step="1" value="0"></label>
+      <label class="f"><b>קו אחד עוקב אחרי</b>
+        <select id="source"><option value="contour">קווי מתאר</option><option value="tone">צללים וגוונים</option></select>
+      </label>
+      <label class="f"><b>נקודות בקו אחד: <span data-out="points"></span></b><input type="range" id="points" min="0" max="3000" step="100" value="0">
+        <span>0 = אוטומטי.</span></label>
+    </div>
+  </details>
+
+  <div id="status"></div>
+  <div class="grid" id="grid"></div>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

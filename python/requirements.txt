@@ -1,0 +1,8 @@
+numpy>=1.26
+pillow>=10
+opencv-python-headless>=4.9
+scipy>=1.11
+rembg[cpu]>=2.0.50
+streamlit>=1.35
+pillow-heif>=0.16
+pytest>=8
