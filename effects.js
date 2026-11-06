@@ -1,6 +1,7 @@
 // b1print effects engine: pure functions on typed arrays, no DOM.
 // Image = { w, h, gray: Float32Array (0..255), mask: Float32Array (0..1), hasMask: bool }
-// Every effect returns Uint8Array ink of length w*h where 1 = black dot.
+// Every effect returns Uint8Array ink of length w*h where 1 = black dot,
+// or null when it needs a transparent background (hasMask) that the image does not have.
 
 export const DPI = 203;
 export const PX_PER_MM = DPI / 25.4;
@@ -120,6 +121,24 @@ export function dilate(ink, w, h, r) {
 }
 
 const invert = (a) => a.map((v) => 1 - v);
+
+/** ink where score < 0, but never more than maxCover of the subject (solid black prints badly). */
+export function binarize(score, mask, hasMask, maxCover) {
+  const vals = [];
+  for (let i = 0; i < score.length; i++) if (!hasMask || mask[i] > 0.5) vals.push(score[i]);
+  vals.sort((a, b) => a - b);
+  const cap = vals[Math.floor(vals.length * maxCover)] ?? 0;
+  const cut = Math.min(0, cap);
+  const ink = new Uint8Array(score.length);
+  for (let i = 0; i < ink.length; i++) ink[i] = score[i] < cut ? 1 : 0;
+  return ink;
+}
+
+/** blend of global (Otsu) and local (neighbourhood mean) brightness: keeps detail in dark areas. */
+function blendedThreshold(b, w, h, mask, hasMask, localWeight = 0.6) {
+  const t = otsu(b, mask, hasMask), local = gaussian(b, w, h, Math.max(w, h) / 14);
+  return Float32Array.from(b, (v, i) => v - (localWeight * local[i] + (1 - localWeight) * t) + 4);
+}
 export const erode = (ink, w, h, r) => invert(dilate(invert(ink), w, h, r));
 
 function rotated(x, y, angleDeg) {
@@ -134,6 +153,13 @@ export function dogLines(gray, w, h, sigma = 1, thresh = 0.015) {
   const ink = new Uint8Array(w * h);
   for (let i = 0; i < ink.length; i++) ink[i] = a[i] - b[i] < -thresh ? 1 : 0;
   return ink;
+}
+
+/** Drop strokes along the photo's outer edge: the jump from photo to white margin is not a real line. */
+export function clipToFrame(ink, img, px = 3) {
+  if (img.hasMask) return ink;
+  const inside = erode(Uint8Array.from(img.mask, (v) => (v > 0.5 ? 1 : 0)), img.w, img.h, px);
+  return ink.map((v, i) => v & inside[i]);
 }
 
 /** Contrast for thermal: percentile stretch on the subject + unsharp local contrast. */
@@ -193,16 +219,18 @@ effect("floyd", "פלויד-סטיינברג", "דיתור עם הכי הרבה 
   return ink;
 });
 
-effect("lineart", "ציור קווים", "קווי מתאר בדיו. מעט שחור, חד מאוד.", ({ w, h, gray }, p) => {
+effect("lineart", "ציור קווים", "קווי מתאר בדיו. מעט שחור, חד מאוד.", (img, p) => {
+  const { w, h, gray } = img;
   const pre = gaussian(gray, w, h, 0.6);
-  let ink = dogLines(pre, w, h, 1.0, p.detail ?? 0.015);
+  let ink = clipToFrame(dogLines(pre, w, h, 1.0, p.detail ?? 0.015), img);
   ink = removeSpecks(ink, w, h, 14);
   return dilate(ink, w, h, p.linePx ?? 0);
 });
 
 effect("sticker", "מדבקה", "קווים ומסגרת עבה מסביב לנושא. צריך רקע שקוף.", (img, p) => {
-  const { w, h, mask, hasMask } = img, inner = EFFECTS.lineart.fn(img, p);
-  if (!hasMask) return inner;
+  const { w, h, mask, hasMask } = img;
+  if (!hasMask) return null;
+  const inner = EFFECTS.lineart.fn(img, p);
   const m = new Uint8Array(w * h);
   for (let i = 0; i < m.length; i++) m[i] = mask[i] > 0.5 ? 1 : 0;
   const gap = 4, border = 3, outer = dilate(m, w, h, gap + border), near = dilate(m, w, h, gap);
@@ -245,25 +273,30 @@ effect("engraving", "חריטה", "קווים שהעובי שלהם לפי הכ�
   return removeSpecks(ink, w, h, 3);
 });
 
-effect("threshold", "חותמת", "שחור או לבן מוחלט. ללוגואים, טקסט וניגודיות גבוהה.", ({ w, h, gray, mask, hasMask }, p) => {
-  const b = gaussian(gray, w, h, 0.8), t = otsu(b, mask, hasMask), ink = new Uint8Array(w * h);
-  for (let i = 0; i < ink.length; i++) ink[i] = b[i] < t + (p.offset ?? 0) ? 1 : 0;
-  return removeSpecks(ink, w, h, 8);
+effect("threshold", "חותמת", "שחור או לבן מוחלט, בסגנון חותמת. ללוגואים, טקסט ופרצופים.", ({ w, h, gray, mask, hasMask }, p) => {
+  const b = gaussian(gray, w, h, 0.8);
+  const score = blendedThreshold(b, w, h, mask, hasMask, 0.6).map((v) => v - (p.offset ?? 0));
+  return removeSpecks(binarize(score, mask, hasMask, 0.45), w, h, 10);
 });
 
-effect("stencil", "שבלונה", "כתמים חלקים ונועזים בסגנון פופ ארט.", ({ w, h, gray, mask, hasMask }, p) => {
-  const g = gaussian(gray, w, h, 2.5), t = otsu(g, mask, hasMask);
-  let ink = new Uint8Array(w * h);
-  for (let i = 0; i < ink.length; i++) ink[i] = g[i] < t + (p.offset ?? 0) ? 1 : 0;
-  ink = dilate(erode(ink, w, h, 2), w, h, 2); // open
-  ink = erode(dilate(ink, w, h, 2), w, h, 2); // close
-  ink = removeSpecks(ink, w, h, 40, 1);
-  return removeSpecks(ink, w, h, 40, 0);
+effect("stencil", "שבלונה", "פוסטר בשלוש רמות: שחור, פסים ולבן. פופ ארט.", ({ w, h, gray, mask, hasMask }) => {
+  const g = gaussian(gray, w, h, 2.2);
+  const score = blendedThreshold(g, w, h, mask, hasMask, 0.5);
+  // level 2 = black, level 1 = diagonal stripes, level 0 = white
+  const dark = binarize(score, mask, hasMask, 0.22);
+  const mid = binarize(score.map((v) => v - 22), mask, hasMask, 0.5);
+  const clean = (a) => removeSpecks(removeSpecks(erode(dilate(dilate(erode(a, w, h, 2), w, h, 2), w, h, 2), w, h, 2), w, h, 40, 1), w, h, 40, 0);
+  const D = clean(dark), M = clean(mid), ink = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    ink[i] = D[i] || (M[i] && (x + y) % 5 < 2) ? 1 : 0; // 2 px stripes survive thermal blur
+  }
+  return ink;
 });
 
 effect("silhouette", "צללית", "צללית שחורה מלאה של הנושא. צריך רקע שקוף.", (img, p) => {
   const { w, h, mask, hasMask } = img;
-  if (!hasMask) return EFFECTS.threshold.fn(img, p);
+  if (!hasMask) return null; // needs a cut-out; the UI explains how
   return removeSpecks(Uint8Array.from(mask, (v) => (v > 0.5 ? 1 : 0)), w, h, 30);
 });
 
@@ -309,7 +342,7 @@ export function oneline(img, p = {}) {
   const rnd = mulberry32(p.seed ?? 7);
   let wt;
   if (source === "contour") {
-    const lines = removeSpecks(dogLines(gaussian(gray, w, h, 0.6), w, h, 1, p.detail ?? 0.015), w, h, 14);
+    const lines = removeSpecks(clipToFrame(dogLines(gaussian(gray, w, h, 0.6), w, h, 1, p.detail ?? 0.015), img), w, h, 14);
     wt = gaussian(Float32Array.from(lines), w, h, 0.8);
   } else {
     wt = darkness(gray, 2.2).map((v) => (v < 0.08 ? 0 : v));

@@ -38,3 +38,16 @@ test("enhance keeps removed background white", () => {
   const out = enhance(sample(), 1);
   assert.equal(out.gray[0], 255);
 });
+
+test("mask-only effects return null without a cut-out", () => {
+  const img = { ...sample(), hasMask: false };
+  assert.equal(EFFECTS.silhouette.fn(img, {}), null);
+  assert.equal(EFFECTS.sticker.fn(img, {}), null);
+});
+
+test("threshold never floods the label", () => {
+  const img = sample();
+  img.gray.fill(60); // uniformly dark photo
+  const ink = EFFECTS.threshold.fn(img, {});
+  assert.ok(ink.reduce((a, b) => a + b, 0) / ink.length < 0.5);
+});

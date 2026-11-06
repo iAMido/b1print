@@ -50,6 +50,9 @@
   .card canvas { width:100%; height:auto; image-rendering:pixelated; background:#fff; border-radius:6px; border:1px solid var(--line); }
   .card .row .btn { flex:1; }
   .pending canvas { opacity:.25; }
+  .card.note { border-style:dashed; }
+  .card.note ol { margin:0; padding-inline-start:20px; font-size:14px; }
+  .warn { font-size:12px; color:#b45309; }
 </style>
 </head>
 <body>
@@ -72,8 +75,10 @@
       <label class="f"><b>גודל מדבקה (מ"מ)</b>
         <select id="label"></select>
       </label>
+      <label class="f"><b>כיוון</b>
+        <select id="orient"><option value="auto">אוטומטי (לפי התמונה)</option><option value="normal">רגיל</option><option value="rotate">מסובב 90°</option></select>
+      </label>
       <div class="toggles">
-        <label class="chip"><input type="checkbox" id="rotate"> לאורך (סיבוב 90°)</label>
         <label class="chip"><input type="checkbox" id="cover"> למלא את כל המדבקה</label>
         <label class="chip"><input type="checkbox" id="invert"> הפוך (לבן על שחור)</label>
       </div>

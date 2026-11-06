@@ -3,7 +3,7 @@ import { EFFECTS, LABELS, labelSize, enhance, oneline, DPI, PX_PER_MM } from "./
 
 const $ = (s) => document.querySelector(s);
 const ORDER = ["atkinson", "lineart", "sticker", "oneline", "floyd", "sketch", "halftone", "engraving", "threshold", "stencil", "silhouette"];
-const KEYS = ["label", "rotate", "cover", "invert", "margin", "contrast", "gamma", "detail", "linePx", "source", "points"];
+const KEYS = ["label", "orient", "cover", "invert", "margin", "contrast", "gamma", "detail", "linePx", "source", "points"];
 const status = (t) => ($("#status").textContent = t);
 
 let source = null; // ImageBitmap
@@ -82,7 +82,6 @@ function canvas(w, h) {
 function prepare(s) {
   const [lw, lh] = LABELS[s.label];
   let [W, H] = labelSize(lw, lh);
-  if (s.rotate) [W, H] = [H, W];
 
   // 1. working copy, capped size
   const scale0 = Math.min(1, 1600 / Math.max(source.width, source.height));
@@ -108,7 +107,14 @@ function prepare(s) {
     crop = [crop[0], crop[1], crop[2] - crop[0], crop[3] - crop[1]];
   }
 
-  // 3. fit onto the label canvas (stepwise halving keeps downscaling sharp)
+  // 3. orientation: a portrait photo on a landscape label is drawn portrait and rotated on export,
+  //    so it fills the label instead of a third of it
+  const photoPortrait = crop[3] > crop[2] * 1.08, photoLandscape = crop[2] > crop[3] * 1.08;
+  const rotated = s.orient === "rotate" ||
+    (s.orient === "auto" && ((photoPortrait && W > H) || (photoLandscape && H > W)));
+  if (rotated) [W, H] = [H, W];
+
+  // 4. fit onto the label canvas (stepwise halving keeps downscaling sharp)
   const m = Math.round(s.margin * PX_PER_MM), bw = W - 2 * m, bh = H - 2 * m;
   const k = (s.cover ? Math.max : Math.min)(bw / crop[2], bh / crop[3]);
   const nw = Math.max(1, Math.round(crop[2] * k)), nh = Math.max(1, Math.round(crop[3] * k));
@@ -125,14 +131,14 @@ function prepare(s) {
   oc.drawImage(src, sx, sy, sw, sh, Math.round((W - nw) / 2), Math.round((H - nh) / 2), nw, nh);
   const d = oc.getImageData(0, 0, W, H).data;
 
-  // 4. grey over white paper + subject mask
+  // 5. grey over white paper + subject mask
   const gray = new Float32Array(W * H), mask = new Float32Array(W * H);
   for (let i = 0, p = 0; p < W * H; i += 4, p++) {
     const a = d[i + 3] / 255, l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
     gray[p] = l * a + 255 * (1 - a);
-    mask[p] = hasMask ? a : 1;
+    mask[p] = a; // without a cut-out this is just the photo rectangle (margins = 0)
   }
-  return enhance({ w: W, h: H, gray, mask, hasMask }, s.contrast);
+  return { ...enhance({ w: W, h: H, gray, mask, hasMask }, s.contrast), rotated };
 }
 
 // ---------- output ----------
@@ -195,7 +201,7 @@ async function run() {
     grid.append(card);
     cards[name] = card;
   }
-  if (!img.hasMask) status("אין רקע שקוף, אז צללית ומדבקה עובדות על כל התמונה. להסרת רקע: ראו טיפ למעלה.");
+  status(img.rotated ? "התמונה סובבה כדי למלא את המדבקה (בהדפסה היא תצא לאורך המדבקה)." : "");
 
   const params = { gamma: s.gamma, detail: s.detail, linePx: s.linePx };
   for (const name of ORDER) {
@@ -204,12 +210,23 @@ async function run() {
     let ink, svg;
     if (name === "oneline") ({ ink, svg } = oneline(img, { source: s.source, points: s.points, detail: s.detail }));
     else ink = EFFECTS[name].fn(img, params);
+    const card = cards[name];
+    if (!ink) { // effect needs a transparent background
+      card.classList.remove("pending");
+      card.classList.add("note");
+      card.querySelector("canvas").remove();
+      card.querySelector(".row").innerHTML = `<p>צריך תמונה עם רקע שקוף:</p><ol><li>באפליקציית התמונות, לחיצה ארוכה על הנושא</li><li>"העתק"</li><li>כאן: "הדבקה מהלוח"</li></ol>`;
+      continue;
+    }
+    let black = 0;
+    for (let i = 0; i < ink.length; i++) black += ink[i];
+    if (black / ink.length > 0.55) card.querySelector("p").insertAdjacentHTML("afterend", `<span class="warn">הרבה שחור: עלול לצאת עם פסים. כדאי לבחור תמונה עם רקע שקוף או נושא קרוב יותר.</span>`);
     const view = inkToCanvas(ink, img.w, img.h, s.invert);
-    const card = cards[name], cv = card.querySelector("canvas");
+    const cv = card.querySelector("canvas");
     cv.getContext("2d").drawImage(view, 0, 0);
     card.classList.remove("pending");
 
-    const label = s.rotate ? rotate90(view) : view;
+    const label = img.rotated ? rotate90(view) : view;
     const file = new File([await pngWithDpi(label)], `b1-${name}-${s.label}.png`, { type: "image/png" });
     const btn = card.querySelector("button");
     btn.disabled = false;
@@ -222,7 +239,6 @@ async function run() {
       card.querySelector(".row").append(b2);
     }
   }
-  if (img.hasMask) status("");
 }
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

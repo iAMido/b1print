@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, serve cache first, refresh in the background.
-const VERSION = "b1print-v1";
+const VERSION = "b1print-v3";
 const SHELL = ["./", "index.html", "app.js", "effects.js", "manifest.webmanifest",
   "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"];
 
